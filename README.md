@@ -68,6 +68,16 @@ The build scripts also download three files that live in no repository. Copies a
 
 NVIDIA's closed driver packages and the prebuilt boot files are not in the release: they are already inside `packages/l4t-debs` and `packages/l4t-debs-source`.
 
+## Kernel build
+
+The workflow [.github/workflows/kernel-build.yml](.github/workflows/kernel-build.yml) compiles the Linux 4.9 kernel for the Switch on a standard free GitHub runner (Ubuntu 22.04) using only this repo's copies. It checks out just the eight kernel submodules plus `build/l4t-kernel-build-scripts` at their pinned commits, downloads the compiler and Google's device-tree tools from the [inputs-2026-11-22 release](https://github.com/mattpetters/switch-linux-stack/releases/tag/inputs-2026-11-22) and checks their SHA-256 against [inputs.tsv](inputs.tsv), then runs a copy of the upstream build script. Three edits are made to that copy, each asserting that it matched: the eight `git clone` lines are made to abort (the sources are already in place), and the compiler and libufdt `wget` lines become copies of the verified files. A last step fails the job if any executed line still names github.com/theofficialgman, gitlab.com/switchroot, releases.linaro.org or android.googlesource.com. Outputs (`uImage`, `nx-plat.dtimg`, `modules.tar.gz`) are kept as an artifact for 3 days, and the job summary lists the kernel version, file sizes and input commits.
+
+Run it: `gh workflow run kernel-build.yml -R mattpetters/switch-linux-stack`, then `gh run watch`.
+
+Status: green on 2026-11-22, [run 45046993524](https://github.com/mattpetters/switch-linux-stack/actions/runs/45046993524), build time 9 min 59 s, kernel `Linux version 4.9.140-l4t ... gcc 7.5.0 (Linaro GCC 7.5-2019.12)`. `uImage` is 10,366,360 bytes and `nx-plat.dtimg` is 668,846 bytes (the installed image ships 10,359,243 and 668,726).
+
+What this does not prove: the kernel has not been booted on a Switch, and only the kernel is built, not the boot files (hekate, ATF, U-Boot) or the disk image. The build still downloads Ubuntu packages (apt) and GitHub Actions components, and GitHub itself hosts the sources.
+
 ## Scripts
 
 - `scripts/verify.sh`: checks that each pinned commit is still reachable in our copy and that the submodule pointer matches the lock file; exits non-zero on mismatch.
