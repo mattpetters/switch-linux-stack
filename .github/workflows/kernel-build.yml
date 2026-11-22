@@ -1,0 +1,149 @@
+name: kernel-build
+
+# Proves the Linux kernel for the Nintendo Switch compiles using only this
+# owner's own copies of the sources and build inputs. Manual start only.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+env:
+  INPUTS_TAG: inputs-2026-11-22
+  # The upstream build script, run unmodified from our pinned submodule.
+  SCRIPT_DIR: build/l4t-kernel-build-scripts
+
+jobs:
+  build:
+    # Standard free runner. 22.04 rather than 24.04: the kernel is version 4.9
+    # (2018 code) and the Linaro GCC 7.5 compiler is from 2019, so the older
+    # host toolchain is the safer match. (Chosen from reasoning, not tested on 24.04.)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      # Check out only this repo; the kernel repos are cloned by the build
+      # script itself, and only the build-script submodule is fetched here.
+      - uses: actions/checkout@v7
+      - name: Fetch only the build-script submodule
+        run: git submodule update --init "$SCRIPT_DIR"
+
+      - name: Install host packages (from the upstream README, minus python2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget tar make git patch xz-utils gcc bc xxd \
+            build-essential bison flex python3 python3-distutils kmod u-boot-tools
+
+      # Guard: every URL in the build script must be one we redirect below.
+      # If upstream's script ever mentions another host, fail instead of
+      # silently fetching from it.
+      - name: Guard - every URL in the build script is redirected
+        run: |
+          urls=$(grep -oE 'https?://[^ "'"'"')]+' "$SCRIPT_DIR/l4t-linux-build.sh" | sort -u)
+          echo "$urls"
+          bad=0
+          while read -r u; do
+            case "$u" in
+              https://github.com/theofficialgman/*) ;;          # git rewrite rule
+              https://gitlab.com/switchroot/kernel/*) ;;        # git rewrite rule
+              https://releases.linaro.org/components/toolchain/binaries/latest-7/aarch64-linux-gnu/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz) ;;  # wget shim
+              https://android.googlesource.com/platform/system/libufdt/+archive/refs/heads/master/utils.tar.gz) ;;  # wget shim
+              *) echo "NOT REDIRECTED: $u"; bad=1 ;;
+            esac
+          done <<< "$urls"
+          exit $bad
+
+      # Our copies of the compiler and Google's device-tree tools (these are
+      # files, not git repos), checked against the SHA-256 in inputs.tsv.
+      - name: Download our copies of the two build inputs and verify them
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          for f in gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz \
+                   libufdt-utils-9b70f594cf149c7c73989c78f03d210f8aa1c1f6.tar.gz; do
+            gh release download "$INPUTS_TAG" -R "$GITHUB_REPOSITORY" -p "$f" -D "$RUNNER_TEMP/inputs"
+            want=$(awk -F'\t' -v f="$f" '$1==f {print $3}' inputs.tsv)
+            got=$(sha256sum "$RUNNER_TEMP/inputs/$f" | cut -d' ' -f1)
+            echo "$f want=$want got=$got"
+            [ -n "$want" ] && [ "$want" = "$got" ] || { echo "SHA-256 MISMATCH"; exit 1; }
+          done
+
+      # Redirect the script's downloads without editing it:
+      # - git: rewrite the upstream clone addresses to our GitHub copies.
+      # - wget: a stand-in placed first on PATH serves the two known URLs from
+      #   the verified local files and fails on any other URL.
+      - name: Redirect clones and downloads to our copies
+        run: |
+          git config --global url."https://github.com/mattpetters/".insteadOf "https://github.com/theofficialgman/"
+          git config --global --add url."https://github.com/mattpetters/".insteadOf "https://gitlab.com/switchroot/kernel/"
+          mkdir -p "$RUNNER_TEMP/shim"
+          cat > "$RUNNER_TEMP/shim/wget" <<'EOF'
+          #!/bin/bash
+          url="${!#}"   # the script always passes the URL as the last argument
+          case "$url" in
+            https://releases.linaro.org/*/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz)
+              cp "$INPUTS_DIR/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz" . ;;
+            https://android.googlesource.com/platform/system/libufdt/+archive/refs/heads/master/utils.tar.gz)
+              cp "$INPUTS_DIR/libufdt-utils-9b70f594cf149c7c73989c78f03d210f8aa1c1f6.tar.gz" utils.tar.gz ;;
+            *) echo "wget shim: unexpected URL $url" >&2; exit 1 ;;
+          esac
+          echo "wget shim: served $url from our copy"
+          EOF
+          chmod +x "$RUNNER_TEMP/shim/wget"
+          echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
+          echo "INPUTS_DIR=$RUNNER_TEMP/inputs" >> "$GITHUB_ENV"
+
+      # Run the unmodified script. It clones the 8 repos into ./kernel next to itself.
+      - name: Build the kernel (unmodified upstream script)
+        run: |
+          start=$(date +%s)
+          cd "$SCRIPT_DIR"
+          ./l4t-linux-build.sh
+          echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      # Each clone's commit must equal the pin in stack.lock.tsv.
+      - name: Check cloned commits against stack.lock.tsv
+        run: |
+          fail=0
+          while read -r dir lock; do
+            want=$(awk -F'\t' -v p="kernel/$lock" '$1==p {print $5}' stack.lock.tsv)
+            got=$(git -C "$SCRIPT_DIR/kernel/$dir" rev-parse HEAD)
+            if [ "$want" = "$got" ]; then s=ok; else s=MISMATCH; fail=1; fi
+            echo "$s $lock pin=$want head=$got"
+          done <<'EOF'
+          kernel-4.9 switch-l4t-kernel-4.9
+          nvidia switch-l4t-kernel-nvidia
+          hardware/nvidia/platform/t210/nx switch-l4t-platform-t210-nx
+          nvgpu l4t-kernel-nvgpu
+          hardware/nvidia/soc/t210 l4t-soc-t210
+          hardware/nvidia/soc/tegra l4t-soc-tegra
+          hardware/nvidia/platform/tegra/common l4t-platform-tegra-common
+          hardware/nvidia/platform/t210/common l4t-platform-t210-common
+          EOF
+          exit $fail
+
+      - name: Report outputs and kernel version
+        run: |
+          cd "$SCRIPT_DIR/kernel"
+          ver=$(tail -c +65 uImage | zcat 2>/dev/null | strings | grep -m1 'Linux version' || true)
+          {
+            echo "## Kernel build from our copies only"
+            echo "Build script time: $((BUILD_SECONDS / 60)) min $((BUILD_SECONDS % 60)) s"
+            echo
+            echo "Kernel version string: \`$ver\`"
+            echo
+            echo "| file | bytes | sha256 |"
+            echo "|---|---|---|"
+            for f in uImage nx-plat.dtimg modules.tar.gz; do
+              echo "| $f | $(stat -c %s "$f") | $(sha256sum "$f" | cut -d' ' -f1) |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: switch-kernel
+          path: |
+            build/l4t-kernel-build-scripts/kernel/uImage
+            build/l4t-kernel-build-scripts/kernel/nx-plat.dtimg
+            build/l4t-kernel-build-scripts/kernel/modules.tar.gz
+          retention-days: 3
+          if-no-files-found: error
