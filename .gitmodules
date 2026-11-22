@@ -1,0 +1,108 @@
+[submodule "build/l4t-image-buildscripts"]
+	path = build/l4t-image-buildscripts
+	url = https://github.com/mattpetters/l4t-image-buildscripts
+	branch = master
+[submodule "build/l4t-kernel-build-scripts"]
+	path = build/l4t-kernel-build-scripts
+	url = https://github.com/mattpetters/l4t-kernel-build-scripts
+	branch = master
+[submodule "build/bootstack-build-scripts"]
+	path = build/bootstack-build-scripts
+	url = https://github.com/mattpetters/bootstack-build-scripts
+	branch = master
+[submodule "kernel/switch-l4t-kernel-4.9"]
+	path = kernel/switch-l4t-kernel-4.9
+	url = https://github.com/mattpetters/switch-l4t-kernel-4.9
+	branch = linux-dev
+[submodule "kernel/switch-l4t-kernel-nvidia"]
+	path = kernel/switch-l4t-kernel-nvidia
+	url = https://github.com/mattpetters/switch-l4t-kernel-nvidia
+	branch = linux-dev
+[submodule "kernel/switch-l4t-platform-t210-nx"]
+	path = kernel/switch-l4t-platform-t210-nx
+	url = https://github.com/mattpetters/switch-l4t-platform-t210-nx
+	branch = linux-dev
+[submodule "kernel/l4t-kernel-nvgpu"]
+	path = kernel/l4t-kernel-nvgpu
+	url = https://github.com/mattpetters/l4t-kernel-nvgpu
+	branch = linux-3.4.0-r32.5
+[submodule "kernel/l4t-soc-t210"]
+	path = kernel/l4t-soc-t210
+	url = https://github.com/mattpetters/l4t-soc-t210
+	branch = l4t/l4t-r32.5
+[submodule "kernel/l4t-soc-tegra"]
+	path = kernel/l4t-soc-tegra
+	url = https://github.com/mattpetters/l4t-soc-tegra
+	branch = l4t/l4t-r32.5
+[submodule "kernel/l4t-platform-tegra-common"]
+	path = kernel/l4t-platform-tegra-common
+	url = https://github.com/mattpetters/l4t-platform-tegra-common
+	branch = l4t/l4t-r32.5
+[submodule "kernel/l4t-platform-t210-common"]
+	path = kernel/l4t-platform-t210-common
+	url = https://github.com/mattpetters/l4t-platform-t210-common
+	branch = l4t/l4t-r32.5
+[submodule "kernel/switch-l4t-kernel-nvgpu"]
+	path = kernel/switch-l4t-kernel-nvgpu
+	url = https://github.com/mattpetters/switch-l4t-kernel-nvgpu
+	branch = linux-dev-r32.5
+[submodule "boot/hekate"]
+	path = boot/hekate
+	url = https://github.com/mattpetters/hekate
+	branch = master
+[submodule "boot/switch-l4t-atf"]
+	path = boot/switch-l4t-atf
+	url = https://github.com/mattpetters/switch-l4t-atf
+	branch = switch-v5-atf2.6
+[submodule "boot/switch-atf"]
+	path = boot/switch-atf
+	url = https://github.com/mattpetters/switch-atf
+	branch = switch-v4-atf2.6
+[submodule "boot/switch-l4t-uboot"]
+	path = boot/switch-l4t-uboot
+	url = https://github.com/mattpetters/switch-l4t-uboot
+	branch = linux-hekatf
+[submodule "boot/switch-uboot"]
+	path = boot/switch-uboot
+	url = https://github.com/mattpetters/switch-uboot
+	branch = linux-hekatf
+[submodule "boot/switch-uboot-scripts"]
+	path = boot/switch-uboot-scripts
+	url = https://github.com/mattpetters/switch-uboot-scripts
+	branch = master
+[submodule "boot/switch-coreboot"]
+	path = boot/switch-coreboot
+	url = https://github.com/mattpetters/switch-coreboot
+	branch = switch-linux
+[submodule "packages/l4t-debs"]
+	path = packages/l4t-debs
+	url = https://github.com/mattpetters/l4t-debs
+	branch = main
+[submodule "packages/l4t-debs-source"]
+	path = packages/l4t-debs-source
+	url = https://github.com/mattpetters/l4t-debs-source
+	branch = master
+[submodule "packages/switch-l4t-configs"]
+	path = packages/switch-l4t-configs
+	url = https://github.com/mattpetters/switch-l4t-configs
+	branch = master
+[submodule "packages/joycond"]
+	path = packages/joycond
+	url = https://github.com/mattpetters/joycond
+	branch = master
+[submodule "packages/switchroot-joycond"]
+	path = packages/switchroot-joycond
+	url = https://github.com/mattpetters/switchroot-joycond
+	branch = linux
+[submodule "packages/vk_layer_tegra_dc_present"]
+	path = packages/vk_layer_tegra_dc_present
+	url = https://github.com/mattpetters/vk_layer_tegra_dc_present
+	branch = master
+[submodule "packages/FFmpeg"]
+	path = packages/FFmpeg
+	url = https://github.com/mattpetters/FFmpeg
+	branch = 6.1.1-nvv4l2
+[submodule "extras/L4T-Megascript"]
+	path = extras/L4T-Megascript
+	url = https://github.com/mattpetters/L4T-Megascript
+	branch = master
