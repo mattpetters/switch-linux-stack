@@ -58,6 +58,16 @@ Warnings: `kernel/` must be checked out on Linux (the kernel contains file names
 - Every release runs the same Linux 4.9 kernel.
 - The kernel build script downloads its compiler (gcc-linaro-7.5.0-2019.12) from releases.linaro.org. That download no longer works: on 2026-11-22 the URL redirected to a contact page (checked by this repo's author).
 
+## Build inputs that are not git repositories
+
+The build scripts also download three files that live in no repository. Copies are attached to the [inputs-2026-11-22 release](https://github.com/mattpetters/switch-linux-stack/releases/tag/inputs-2026-11-22), and [inputs.tsv](inputs.tsv) records each one's size, SHA-256, where it was fetched from and how it was checked:
+
+- the compiler for the kernel (the Linaro download that stopped working, recovered from a third-party copy whose checksums match independent records and Linaro's own),
+- the minimal Ubuntu 24.04 system the image is built on,
+- Google's device-tree overlay tools.
+
+NVIDIA's closed driver packages and the prebuilt boot files are not in the release: they are already inside `packages/l4t-debs` and `packages/l4t-debs-source`.
+
 ## Scripts
 
 - `scripts/verify.sh`: checks that each pinned commit is still reachable in our copy and that the submodule pointer matches the lock file; exits non-zero on mismatch.
