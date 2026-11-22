@@ -1,7 +1,8 @@
 name: kernel-build
 
-# Proves the Linux kernel for the Nintendo Switch compiles using only this
-# owner's own copies of the sources and build inputs. Manual start only.
+# Proves the Linux kernel for the Nintendo Switch compiles from this repo's own
+# copies only (pinned submodules + the compiler/libufdt files on our release).
+# Manual start only.
 on: workflow_dispatch
 
 permissions:
@@ -9,141 +10,123 @@ permissions:
 
 env:
   INPUTS_TAG: inputs-2026-11-22
-  # The upstream build script, run unmodified from our pinned submodule.
-  SCRIPT_DIR: build/l4t-kernel-build-scripts
+  GCC: gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz
+  UFDT: libufdt-utils-9b70f594cf149c7c73989c78f03d210f8aa1c1f6.tar.gz
 
 jobs:
   build:
-    # Standard free runner. 22.04 rather than 24.04: the kernel is version 4.9
-    # (2018 code) and the Linaro GCC 7.5 compiler is from 2019, so the older
-    # host toolchain is the safer match. (Chosen from reasoning, not tested on 24.04.)
+    # Standard free runner. Kernel 4.9 is built with the bundled Linaro GCC 7.5.
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
-      # Check out only this repo; the kernel repos are cloned by the build
-      # script itself, and only the build-script submodule is fetched here.
       - uses: actions/checkout@v7
-      - name: Fetch only the build-script submodule
-        run: git submodule update --init "$SCRIPT_DIR"
 
-      - name: Install host packages (from the upstream README, minus python2)
+      # Only the eight kernel inputs and the build script, at the commits this repo pins.
+      - name: Fetch only the nine submodules we need (shallow, pinned commits)
+        run: |
+          git submodule update --init --depth 1 -- \
+            build/l4t-kernel-build-scripts \
+            kernel/switch-l4t-kernel-4.9 kernel/switch-l4t-kernel-nvidia \
+            kernel/switch-l4t-platform-t210-nx kernel/l4t-kernel-nvgpu \
+            kernel/l4t-soc-t210 kernel/l4t-soc-tegra \
+            kernel/l4t-platform-tegra-common kernel/l4t-platform-t210-common
+
+      - name: Install host packages (upstream README list, minus python2)
         run: |
           sudo apt-get update
           sudo apt-get install -y wget tar make git patch xz-utils gcc bc xxd \
             build-essential bison flex python3 python3-distutils kmod u-boot-tools
 
-      # Guard: every URL in the build script must be one we redirect below.
-      # If upstream's script ever mentions another host, fail instead of
-      # silently fetching from it.
-      - name: Guard - every URL in the build script is redirected
-        run: |
-          urls=$(grep -oE 'https?://[^ "'"'"')]+' "$SCRIPT_DIR/l4t-linux-build.sh" | sort -u)
-          echo "$urls"
-          bad=0
-          while read -r u; do
-            case "$u" in
-              https://github.com/theofficialgman/*) ;;          # git rewrite rule
-              https://gitlab.com/switchroot/kernel/*) ;;        # git rewrite rule
-              https://releases.linaro.org/components/toolchain/binaries/latest-7/aarch64-linux-gnu/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz) ;;  # wget shim
-              https://android.googlesource.com/platform/system/libufdt/+archive/refs/heads/master/utils.tar.gz) ;;  # wget shim
-              *) echo "NOT REDIRECTED: $u"; bad=1 ;;
-            esac
-          done <<< "$urls"
-          exit $bad
-
-      # Our copies of the compiler and Google's device-tree tools (these are
-      # files, not git repos), checked against the SHA-256 in inputs.tsv.
-      - name: Download our copies of the two build inputs and verify them
+      - name: Download our copies of the compiler and libufdt tools, verify SHA-256
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/inputs"
-          for f in gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz \
-                   libufdt-utils-9b70f594cf149c7c73989c78f03d210f8aa1c1f6.tar.gz; do
+          for f in "$GCC" "$UFDT"; do
             gh release download "$INPUTS_TAG" -R "$GITHUB_REPOSITORY" -p "$f" -D "$RUNNER_TEMP/inputs"
             want=$(awk -F'\t' -v f="$f" '$1==f {print $3}' inputs.tsv)
             got=$(sha256sum "$RUNNER_TEMP/inputs/$f" | cut -d' ' -f1)
             echo "$f want=$want got=$got"
             [ -n "$want" ] && [ "$want" = "$got" ] || { echo "SHA-256 MISMATCH"; exit 1; }
           done
-
-      # Redirect the script's downloads without editing it:
-      # - git: rewrite the upstream clone addresses to our GitHub copies.
-      # - wget: a stand-in placed first on PATH serves the two known URLs from
-      #   the verified local files and fails on any other URL.
-      - name: Redirect clones and downloads to our copies
-        run: |
-          git config --global url."https://github.com/mattpetters/".insteadOf "https://github.com/theofficialgman/"
-          git config --global --add url."https://github.com/mattpetters/".insteadOf "https://gitlab.com/switchroot/kernel/"
-          mkdir -p "$RUNNER_TEMP/shim"
-          cat > "$RUNNER_TEMP/shim/wget" <<'EOF'
-          #!/bin/bash
-          url="${!#}"   # the script always passes the URL as the last argument
-          case "$url" in
-            https://releases.linaro.org/*/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz)
-              cp "$INPUTS_DIR/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz" . ;;
-            https://android.googlesource.com/platform/system/libufdt/+archive/refs/heads/master/utils.tar.gz)
-              cp "$INPUTS_DIR/libufdt-utils-9b70f594cf149c7c73989c78f03d210f8aa1c1f6.tar.gz" utils.tar.gz ;;
-            *) echo "wget shim: unexpected URL $url" >&2; exit 1 ;;
-          esac
-          echo "wget shim: served $url from our copy"
-          EOF
-          chmod +x "$RUNNER_TEMP/shim/wget"
-          echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
           echo "INPUTS_DIR=$RUNNER_TEMP/inputs" >> "$GITHUB_ENV"
 
-      # Run the unmodified script. It clones the 8 repos into ./kernel next to itself.
-      - name: Build the kernel (unmodified upstream script)
+      # Put the sources where the script expects them (KERNEL_DIR/kernel-4.9, nvidia, nvgpu,
+      # hardware/nvidia/...). Copies, not symlinks: the kernel resolves ../hardware by real path.
+      - name: Lay out sources and patch a copy of the build script
+        run: |
+          W="$GITHUB_WORKSPACE/work"; K="$W/kernel"
+          mkdir -p "$K/hardware/nvidia/platform/t210" "$K/hardware/nvidia/platform/tegra" "$K/hardware/nvidia/soc"
+          cp -a kernel/switch-l4t-kernel-4.9              "$K/kernel-4.9"
+          cp -a kernel/switch-l4t-kernel-nvidia           "$K/nvidia"
+          cp -a kernel/l4t-kernel-nvgpu                   "$K/nvgpu"
+          cp -a kernel/switch-l4t-platform-t210-nx        "$K/hardware/nvidia/platform/t210/nx"
+          cp -a kernel/l4t-platform-t210-common           "$K/hardware/nvidia/platform/t210/common"
+          cp -a kernel/l4t-platform-tegra-common          "$K/hardware/nvidia/platform/tegra/common"
+          cp -a kernel/l4t-soc-t210                       "$K/hardware/nvidia/soc/t210"
+          cp -a kernel/l4t-soc-tegra                      "$K/hardware/nvidia/soc/tegra"
+          S="$W/l4t-linux-build.sh"
+          cp build/l4t-kernel-build-scripts/l4t-linux-build.sh "$S"
+
+          # Edit with an assertion: the pattern must match exactly N lines.
+          edit() { # edit <expected-count> <sed-regex-to-match> <sed-s-command>
+            n=$(grep -cE "$2" "$S")
+            [ "$n" = "$1" ] || { echo "PATCH FAILED: '$2' matched $n lines, expected $1"; exit 1; }
+            sed -i -E "/$2/ $3" "$S"
+          }
+          # 8 git clones -> abort if ever reached (they are skipped when the tree is laid out).
+          edit 8 'git clone ' 's|git clone .*|echo "unexpected git clone" >\&2; exit 1  # removed: git clone|'
+          # compiler download -> our verified copy
+          edit 1 'wget .*gcc-linaro-7\.5\.0.*releases\.linaro\.org|wget .*releases\.linaro\.org.*gcc-linaro' 's|wget .*|cp "$INPUTS_DIR/$GCC" .  # removed: wget linaro|'
+          # libufdt download -> our verified copy
+          edit 1 'wget .*android\.googlesource\.com' 's|wget .*|cp "$INPUTS_DIR/$UFDT" utils.tar.gz  # removed: wget googlesource|'
+          diff build/l4t-kernel-build-scripts/l4t-linux-build.sh "$S" || true
+          echo "WORK=$W" >> "$GITHUB_ENV"
+
+      - name: Build the kernel
         run: |
           start=$(date +%s)
-          cd "$SCRIPT_DIR"
-          ./l4t-linux-build.sh
+          cd "$WORK"
+          bash ./l4t-linux-build.sh
           echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
-      # Each clone's commit must equal the pin in stack.lock.tsv.
-      - name: Check cloned commits against stack.lock.tsv
+      # Proof: no executed line of the script (comments stripped) names a forbidden host.
+      - name: Prove the patched script reaches none of the upstream hosts
         run: |
-          fail=0
-          while read -r dir lock; do
-            want=$(awk -F'\t' -v p="kernel/$lock" '$1==p {print $5}' stack.lock.tsv)
-            got=$(git -C "$SCRIPT_DIR/kernel/$dir" rev-parse HEAD)
-            if [ "$want" = "$got" ]; then s=ok; else s=MISMATCH; fail=1; fi
-            echo "$s $lock pin=$want head=$got"
-          done <<'EOF'
-          kernel-4.9 switch-l4t-kernel-4.9
-          nvidia switch-l4t-kernel-nvidia
-          hardware/nvidia/platform/t210/nx switch-l4t-platform-t210-nx
-          nvgpu l4t-kernel-nvgpu
-          hardware/nvidia/soc/t210 l4t-soc-t210
-          hardware/nvidia/soc/tegra l4t-soc-tegra
-          hardware/nvidia/platform/tegra/common l4t-platform-tegra-common
-          hardware/nvidia/platform/t210/common l4t-platform-t210-common
-          EOF
-          exit $fail
+          if sed 's/#.*//' "$WORK/l4t-linux-build.sh" | grep -nE 'github\.com/theofficialgman|gitlab\.com/switchroot|releases\.linaro\.org|android\.googlesource\.com'; then
+            echo "FAIL: executed line still names an upstream host"; exit 1
+          fi
+          echo "OK: no executed line names theofficialgman, gitlab.com/switchroot, releases.linaro.org or android.googlesource.com"
 
-      - name: Report outputs and kernel version
+      - name: Job summary
         run: |
-          cd "$SCRIPT_DIR/kernel"
+          cd "$WORK/kernel"
           ver=$(tail -c +65 uImage | zcat 2>/dev/null | strings | grep -m1 'Linux version' || true)
           {
             echo "## Kernel build from our copies only"
-            echo "Build script time: $((BUILD_SECONDS / 60)) min $((BUILD_SECONDS % 60)) s"
+            echo "Wall-clock build time: $((BUILD_SECONDS / 60)) min $((BUILD_SECONDS % 60)) s"
             echo
             echo "Kernel version string: \`$ver\`"
             echo
-            echo "| file | bytes | sha256 |"
-            echo "|---|---|---|"
-            for f in uImage nx-plat.dtimg modules.tar.gz; do
-              echo "| $f | $(stat -c %s "$f") | $(sha256sum "$f" | cut -d' ' -f1) |"
-            done
+            echo "| file | bytes |"
+            echo "|---|---|"
+            for f in uImage nx-plat.dtimg modules.tar.gz; do echo "| $f | $(stat -c %s "$f") |"; done
+            echo
+            echo "Pinned input commits:"
+            echo '```'
+            cd "$GITHUB_WORKSPACE"
+            git submodule status -- build/l4t-kernel-build-scripts kernel/switch-l4t-kernel-4.9 kernel/switch-l4t-kernel-nvidia \
+              kernel/switch-l4t-platform-t210-nx kernel/l4t-kernel-nvgpu kernel/l4t-soc-t210 kernel/l4t-soc-tegra \
+              kernel/l4t-platform-tegra-common kernel/l4t-platform-t210-common
+            echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         with:
           name: switch-kernel
           path: |
-            build/l4t-kernel-build-scripts/kernel/uImage
-            build/l4t-kernel-build-scripts/kernel/nx-plat.dtimg
-            build/l4t-kernel-build-scripts/kernel/modules.tar.gz
+            work/kernel/uImage
+            work/kernel/nx-plat.dtimg
+            work/kernel/modules.tar.gz
           retention-days: 3
           if-no-files-found: error
